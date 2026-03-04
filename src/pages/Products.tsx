@@ -9,12 +9,19 @@ export default function Products() {
 
   useEffect(() => {
     fetch('/api/products')
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch products');
+        return res.json();
+      })
       .then(data => {
-        if (categoryFilter) {
-          setProducts(data.filter((p: any) => p.category === categoryFilter));
+        if (Array.isArray(data)) {
+          if (categoryFilter) {
+            setProducts(data.filter((p: any) => p.category === categoryFilter));
+          } else {
+            setProducts(data);
+          }
         } else {
-          setProducts(data);
+          console.error("Failed to load products:", data);
         }
       })
       .catch(console.error);

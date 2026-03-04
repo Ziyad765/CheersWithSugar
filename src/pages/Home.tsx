@@ -8,8 +8,17 @@ export default function Home() {
 
   useEffect(() => {
     fetch('/api/products')
-      .then(res => res.json())
-      .then(data => setFeatured(data.slice(0, 3)))
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch products');
+        return res.json();
+      })
+      .then(data => {
+        if (Array.isArray(data)) {
+          setFeatured(data.slice(0, 3));
+        } else {
+          console.error("Failed to load products:", data);
+        }
+      })
       .catch(console.error);
   }, []);
 

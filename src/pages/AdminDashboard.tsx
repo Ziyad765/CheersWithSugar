@@ -14,7 +14,10 @@ export default function AdminDashboard() {
 
   const fetchOrders = () => {
     fetch('/api/orders')
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch orders');
+        return res.json();
+      })
       .then(data => {
         if (Array.isArray(data)) {
           setOrders(data);
