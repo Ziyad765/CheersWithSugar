@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Package, Clock, CheckCircle2, XCircle, Search, Filter } from 'lucide-react';
+import { Package, Clock, CheckCircle2, XCircle, Search, Filter, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function AdminDashboard() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
@@ -12,7 +16,9 @@ export default function AdminDashboard() {
     fetch('/api/orders')
       .then(res => res.json())
       .then(data => {
-        setOrders(data);
+        if (Array.isArray(data)) {
+          setOrders(data);
+        }
         setLoading(false);
       })
       .catch(err => {
@@ -22,13 +28,44 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    fetchOrders();
-    // Simple polling for new orders
-    const interval = setInterval(fetchOrders, 10000);
-    return () => clearInterval(interval);
+    if (sessionStorage.getItem('adminAuth') === 'true') {
+      setIsAuthenticated(true);
+      fetchOrders();
+    } else {
+      setLoading(false);
+    }
   }, []);
 
-  const updateStatus = async (id: number, status: string) => {
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const interval = setInterval(fetchOrders, 10000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      if (res.ok) {
+        setIsAuthenticated(true);
+        sessionStorage.setItem('adminAuth', 'true');
+        setLoading(true);
+        fetchOrders();
+        toast.success('Logged in successfully');
+      } else {
+        setLoginError('Invalid password');
+      }
+    } catch (err) {
+      setLoginError('Login failed. Please try again.');
+    }
+  };
+
+  const updateStatus = async (id: string, status: string) => {
     try {
       const res = await fetch(`/api/orders/${id}/status`, {
         method: 'PATCH',
@@ -36,16 +73,54 @@ export default function AdminDashboard() {
         body: JSON.stringify({ status })
       });
       if (!res.ok) throw new Error('Failed to update status');
-      toast.success(`Order #${id} marked as ${status}`);
+      toast.success(`Order marked as ${status}`);
       fetchOrders();
     } catch (error) {
       toast.error('Failed to update order status');
     }
   };
 
-  const filteredOrders = orders.filter(o => filter === 'all' || o.status === filter);
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-brand-50 text-brand-800">Loading...</div>;
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-brand-50 text-brand-800">Loading Dashboard...</div>;
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-brand-50 px-4">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white p-8 rounded-3xl shadow-xl border border-brand-100 w-full max-w-md"
+        >
+          <div className="w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-6 text-brand-800">
+            <Lock size={32} />
+          </div>
+          <h2 className="font-serif text-3xl font-bold text-center text-brand-900 mb-2">Admin Access</h2>
+          <p className="text-center text-brand-500 mb-8">Please enter the admin password to continue.</p>
+          
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div>
+              <input 
+                type="password" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter password"
+                className="w-full p-4 rounded-xl border border-brand-200 bg-brand-50 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all text-center tracking-widest"
+                required
+              />
+              {loginError && <p className="text-red-500 text-sm mt-2 text-center">{loginError}</p>}
+            </div>
+            <button 
+              type="submit"
+              className="w-full py-4 bg-brand-900 text-white rounded-full font-bold hover:bg-brand-800 transition-colors shadow-lg"
+            >
+              Login to Dashboard
+            </button>
+          </form>
+        </motion.div>
+      </div>
+    );
+  }
+
+  const filteredOrders = orders.filter(o => filter === 'all' || o.status === filter);
 
   return (
     <div className="min-h-screen bg-brand-50 font-sans">
@@ -134,7 +209,7 @@ export default function AdminDashboard() {
                     <div className="flex-1 space-y-4">
                       <div className="flex items-center gap-3 mb-4">
                         <span className="bg-brand-100 text-brand-800 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
-                          Order #{order.id}
+                          Order #{order.id.substring(order.id.length - 6)}
                         </span>
                         <span className="text-sm text-brand-500">
                           {new Date(order.createdAt).toLocaleString()}

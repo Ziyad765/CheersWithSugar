@@ -1,6 +1,6 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import Database from "better-sqlite3";
+import { MongoClient, ObjectId } from "mongodb";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
@@ -8,105 +8,12 @@ import fs from "fs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const dbPath = path.join(__dirname, "data.db");
-const db = new Database(dbPath);
+const MONGODB_URI = process.env.MONGODB_URI;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 
-// Initialize DB schema
-db.exec(`
-  CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT NOT NULL,
-    price REAL NOT NULL,
-    image TEXT NOT NULL,
-    category TEXT NOT NULL,
-    isCustomizable BOOLEAN DEFAULT 0
-  );
-
-  CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    customerName TEXT NOT NULL,
-    customerPhone TEXT NOT NULL,
-    customerLocation TEXT NOT NULL,
-    deliveryDate TEXT NOT NULL,
-    orderType TEXT NOT NULL, -- 'simple' or 'custom'
-    productId INTEGER,
-    customSize TEXT,
-    customMessage TEXT,
-    customDetails TEXT,
-    totalPrice REAL NOT NULL,
-    status TEXT DEFAULT 'pending', -- 'pending', 'confirmed', 'delivered', 'cancelled'
-    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(productId) REFERENCES products(id)
-  );
-`);
-
-// Seed initial products if empty
-const stmt = db.prepare("SELECT COUNT(*) as count FROM products");
-const { count } = stmt.get() as { count: number };
-
-if (count === 0) {
-  const insertProduct = db.prepare(
-    "INSERT INTO products (name, description, price, image, category, isCustomizable) VALUES (?, ?, ?, ?, ?, ?)"
-  );
-  
-  const seedProducts = [
-    {
-      name: "Classic Chocolate Truffle",
-      description: "Rich, dense chocolate cake layered with smooth dark chocolate ganache.",
-      price: 599,
-      image: "https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&q=80&w=1089&ixlib=rb-4.0.3",
-      category: "Cakes",
-      isCustomizable: 1,
-    },
-    {
-      name: "Red Velvet Dream",
-      description: "Soft red velvet sponge with signature cream cheese frosting.",
-      price: 649,
-      image: "https://images.unsplash.com/photo-1616541823729-00fe0aacd32c?auto=format&fit=crop&q=80&w=1114&ixlib=rb-4.0.3",
-      category: "Cakes",
-      isCustomizable: 1,
-    },
-    {
-      name: "Fresh Fruit Gateau",
-      description: "Light vanilla sponge loaded with seasonal fresh fruits and whipped cream.",
-      price: 699,
-      image: "https://images.unsplash.com/photo-1565958011703-44f9829ba187?auto=format&fit=crop&q=80&w=1065&ixlib=rb-4.0.3",
-      category: "Cakes",
-      isCustomizable: 1,
-    },
-    {
-      name: "Assorted Macarons Box",
-      description: "A box of 12 delicate French macarons in assorted flavors.",
-      price: 899,
-      image: "https://images.unsplash.com/photo-1569864358642-9d1684040f43?auto=format&fit=crop&q=80&w=1170&ixlib=rb-4.0.3",
-      category: "Sweets",
-      isCustomizable: 0,
-    },
-    {
-      name: "Premium Motichoor Ladoo",
-      description: "Traditional Indian sweet made with pure desi ghee and premium dry fruits.",
-      price: 450,
-      image: "https://images.unsplash.com/photo-1605197148563-3ec162f49492?auto=format&fit=crop&q=80&w=1170&ixlib=rb-4.0.3",
-      category: "Sweets",
-      isCustomizable: 0,
-    },
-    {
-      name: "Custom Photo Cake",
-      description: "Your favorite photo printed on a delicious cake of your choice.",
-      price: 899,
-      image: "https://images.unsplash.com/photo-1557925923-33b251dc3296?auto=format&fit=crop&q=80&w=1170&ixlib=rb-4.0.3",
-      category: "Custom",
-      isCustomizable: 1,
-    }
-  ];
-
-  const insertMany = db.transaction((products) => {
-    for (const p of products) {
-      insertProduct.run(p.name, p.description, p.price, p.image, p.category, p.isCustomizable);
-    }
-  });
-  insertMany(seedProducts);
+let client: MongoClient | null = null;
+if (MONGODB_URI) {
+  client = new MongoClient(MONGODB_URI);
 }
 
 async function startServer() {
@@ -115,60 +22,129 @@ async function startServer() {
 
   app.use(express.json());
 
+  let db: any = null;
+
+  if (client) {
+    try {
+      await client.connect();
+      db = client.db();
+      console.log("Connected to MongoDB");
+      
+      const productsCol = db.collection("products");
+      const count = await productsCol.countDocuments();
+      if (count === 0) {
+        const seedProducts = [
+          {
+            name: "Classic Chocolate Truffle",
+            description: "Rich, dense chocolate cake layered with smooth dark chocolate ganache.",
+            price: 599,
+            image: "https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&q=80&w=1089&ixlib=rb-4.0.3",
+            category: "Cakes",
+            isCustomizable: true,
+          },
+          {
+            name: "Red Velvet Dream",
+            description: "Soft red velvet sponge with signature cream cheese frosting.",
+            price: 649,
+            image: "https://images.unsplash.com/photo-1616541823729-00fe0aacd32c?auto=format&fit=crop&q=80&w=1114&ixlib=rb-4.0.3",
+            category: "Cakes",
+            isCustomizable: true,
+          },
+          {
+            name: "Fresh Fruit Gateau",
+            description: "Light vanilla sponge loaded with seasonal fresh fruits and whipped cream.",
+            price: 699,
+            image: "https://images.unsplash.com/photo-1565958011703-44f9829ba187?auto=format&fit=crop&q=80&w=1065&ixlib=rb-4.0.3",
+            category: "Cakes",
+            isCustomizable: true,
+          },
+          {
+            name: "Assorted Macarons Box",
+            description: "A box of 12 delicate French macarons in assorted flavors.",
+            price: 899,
+            image: "https://images.unsplash.com/photo-1569864358642-9d1684040f43?auto=format&fit=crop&q=80&w=1170&ixlib=rb-4.0.3",
+            category: "Sweets",
+            isCustomizable: false,
+          },
+          {
+            name: "Premium Motichoor Ladoo",
+            description: "Traditional Indian sweet made with pure desi ghee and premium dry fruits.",
+            price: 450,
+            image: "https://images.unsplash.com/photo-1605197148563-3ec162f49492?auto=format&fit=crop&q=80&w=1170&ixlib=rb-4.0.3",
+            category: "Sweets",
+            isCustomizable: false,
+          },
+          {
+            name: "Custom Photo Cake",
+            description: "Your favorite photo printed on a delicious cake of your choice.",
+            price: 899,
+            image: "https://images.unsplash.com/photo-1557925923-33b251dc3296?auto=format&fit=crop&q=80&w=1170&ixlib=rb-4.0.3",
+            category: "Custom",
+            isCustomizable: true,
+          }
+        ];
+        await productsCol.insertMany(seedProducts);
+        console.log("Seeded initial products");
+      }
+    } catch (e) {
+      console.error("MongoDB connection error:", e);
+    }
+  } else {
+    console.warn("MONGODB_URI is not set. Database features will not work.");
+  }
+
+  const mapId = (doc: any) => {
+    if (!doc) return doc;
+    const { _id, ...rest } = doc;
+    return { id: _id.toString(), ...rest };
+  };
+
   // --- API Routes ---
 
+  // Admin Login
+  app.post("/api/admin/login", (req, res) => {
+    const { password } = req.body;
+    if (password === ADMIN_PASSWORD) {
+      res.json({ success: true });
+    } else {
+      res.status(401).json({ error: "Invalid password" });
+    }
+  });
+
   // Get all products
-  app.get("/api/products", (req, res) => {
+  app.get("/api/products", async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Database not connected" });
     try {
-      const products = db.prepare("SELECT * FROM products").all();
-      // Convert isCustomizable to boolean
-      const mapped = products.map((p: any) => ({ ...p, isCustomizable: p.isCustomizable === 1 }));
-      res.json(mapped);
+      const products = await db.collection("products").find({}).toArray();
+      res.json(products.map(mapId));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch products" });
     }
   });
 
   // Get single product
-  app.get("/api/products/:id", (req, res) => {
+  app.get("/api/products/:id", async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Database not connected" });
     try {
-      const product = db.prepare("SELECT * FROM products WHERE id = ?").get(req.params.id) as any;
+      const product = await db.collection("products").findOne({ _id: new ObjectId(req.params.id) });
       if (!product) return res.status(404).json({ error: "Product not found" });
-      res.json({ ...product, isCustomizable: product.isCustomizable === 1 });
+      res.json(mapId(product));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch product" });
     }
   });
 
   // Create order
-  app.post("/api/orders", (req, res) => {
-    const {
-      customerName,
-      customerPhone,
-      customerLocation,
-      deliveryDate,
-      orderType,
-      productId,
-      customSize,
-      customMessage,
-      customDetails,
-      totalPrice
-    } = req.body;
-
+  app.post("/api/orders", async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Database not connected" });
     try {
-      const stmt = db.prepare(`
-        INSERT INTO orders (
-          customerName, customerPhone, customerLocation, deliveryDate,
-          orderType, productId, customSize, customMessage, customDetails, totalPrice
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      
-      const result = stmt.run(
-        customerName, customerPhone, customerLocation, deliveryDate,
-        orderType, productId || null, customSize || null, customMessage || null, customDetails || null, totalPrice
-      );
-      
-      res.status(201).json({ id: result.lastInsertRowid, message: "Order placed successfully" });
+      const order = {
+        ...req.body,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      };
+      const result = await db.collection("orders").insertOne(order);
+      res.status(201).json({ id: result.insertedId, message: "Order placed successfully" });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Failed to place order" });
@@ -176,26 +152,25 @@ async function startServer() {
   });
 
   // Get all orders (Admin)
-  app.get("/api/orders", (req, res) => {
+  app.get("/api/orders", async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Database not connected" });
     try {
-      const orders = db.prepare(`
-        SELECT o.*, p.name as productName 
-        FROM orders o 
-        LEFT JOIN products p ON o.productId = p.id
-        ORDER BY o.createdAt DESC
-      `).all();
-      res.json(orders);
+      const orders = await db.collection("orders").find({}).sort({ createdAt: -1 }).toArray();
+      res.json(orders.map(mapId));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch orders" });
     }
   });
 
   // Update order status (Admin)
-  app.patch("/api/orders/:id/status", (req, res) => {
+  app.patch("/api/orders/:id/status", async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Database not connected" });
     const { status } = req.body;
     try {
-      const stmt = db.prepare("UPDATE orders SET status = ? WHERE id = ?");
-      stmt.run(status, req.params.id);
+      await db.collection("orders").updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $set: { status } }
+      );
       res.json({ message: "Order status updated" });
     } catch (error) {
       res.status(500).json({ error: "Failed to update order status" });
